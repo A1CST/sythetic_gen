@@ -1,0 +1,353 @@
+import os
+import tkinter as tk
+from tkinter import ttk, filedialog
+from PIL import Image, ImageTk
+import json
+import pyautogui
+import cv2
+import numpy as np
+
+# Define root and icon capture directory paths
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+ICON_BASE_DIR = os.path.normpath(os.path.join(ROOT_DIR, '..', 'icon_captures'))
+
+# Load JSON data from selected directory
+def load_json_data(label_json):
+    if os.path.exists(label_json):
+        with open(label_json, 'r') as f:
+            try:
+                return json.load(f) if os.stat(label_json).st_size > 0 else {}
+            except json.JSONDecodeError:
+                print("Error: JSON file is corrupt or empty. Initializing as an empty dictionary.")
+                return {}
+    else:
+        return {}
+
+# Load finalized class file
+def load_finalized_class_file(class_file_path):
+    class_mapping = {}
+    if os.path.exists(class_file_path):
+        with open(class_file_path, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) == 2:
+                    class_mapping[int(parts[0])] = parts[1]
+    return class_mapping
+
+# Save finalized class file
+def save_finalized_class_file(class_file_path, class_mapping):
+    with open(class_file_path, 'w') as f:
+        for class_id, class_label in sorted(class_mapping.items()):
+            f.write(f"{class_id}    {class_label}\n")
+
+def capture_screenshot():
+    # Capture a screenshot of the main monitor
+    screenshot = pyautogui.screenshot()
+    screenshot = np.array(screenshot)
+    screenshot = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
+    return screenshot
+
+def draw_bounding_box(event, x, y, flags, param):
+    global ix, iy, drawing, screenshot, screenshot_copy
+
+    if event == cv2.EVENT_LBUTTONDOWN:
+        drawing = True
+        ix, iy = x, y
+
+    elif event == cv2.EVENT_MOUSEMOVE:
+        if drawing:
+            screenshot = screenshot_copy.copy()
+            cv2.rectangle(screenshot, (ix, iy), (x, y), (0, 255, 0), 2)
+
+    elif event == cv2.EVENT_LBUTTONUP:
+        drawing = False
+        cv2.rectangle(screenshot, (ix, iy), (x, y), (0, 255, 0), 2)
+        save_cropped_area(ix, iy, x, y)
+
+def save_cropped_area(x1, y1, x2, y2):
+    global screenshot_copy, selected_folder_path
+
+    # Create the output directory if not exists
+    output_dir = get_next_output_directory(selected_folder_path)
+
+    # Save the cropped area as a new icon
+    crop_img = screenshot_copy[min(y1, y2):max(y1, y2), min(x1, x2):max(x1, x2)]
+    icon_filename = os.path.join(output_dir, f"icon_{len(os.listdir(output_dir))}.png")
+    cv2.imwrite(icon_filename, crop_img)
+    print(f"Saved cropped icon to {icon_filename}")
+
+    # Clear the current bounding box
+    clear_bounding_box()
+
+def clear_bounding_box():
+    global screenshot, screenshot_copy
+    screenshot = screenshot_copy.copy()
+
+def take_screenshot():
+    global screenshot, screenshot_copy
+
+    # Capture the screenshot
+    screenshot = capture_screenshot()
+    screenshot_copy = screenshot.copy()
+
+    # Open the screenshot window with OpenCV
+    cv2.namedWindow("Screenshot")
+    cv2.setMouseCallback("Screenshot", draw_bounding_box)
+
+    while True:
+        cv2.imshow("Screenshot", screenshot)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord("c"):
+            clear_bounding_box()
+        elif key == ord("s"):
+            break
+
+    cv2.destroyAllWindows()
+
+def get_next_output_directory(base_dir):
+    existing_dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d)) and d.startswith('icons_')]
+    if existing_dirs:
+        existing_numbers = [int(d.split('_')[1]) for d in existing_dirs if d.split('_')[1].isdigit()]
+        next_number = max(existing_numbers) + 1 if existing_numbers else 1
+    else:
+        next_number = 1
+
+    new_output_dir = os.path.join(base_dir, f'icons_{next_number}')
+    os.makedirs(new_output_dir, exist_ok=True)
+    return new_output_dir
+
+# Initialize Tkinter window
+root = tk.Tk()
+root.title("Icon Classifier")
+
+# Function to load and display images
+def load_image(index):
+    if index < 0 or index >= len(icon_files):
+        print(f"Error: Index {index} is out of range for icon_files.")
+        return None
+
+    image_path = os.path.join(selected_folder_path, icon_files[index])
+    image = Image.open(image_path)
+    image.thumbnail((600, 600))
+    return ImageTk.PhotoImage(image)
+
+# Function to update the display with the current image
+def update_display():
+    global current_index, img_display
+    img_display = load_image(current_index)
+    if img_display:
+        img_label.configure(image=img_display)
+        img_label.image = img_display  # Properly retain a reference to the image
+
+        current_image = icon_files[current_index]
+        class_entry.delete(0, tk.END)
+        if current_image in icon_classes:
+            class_entry.insert(0, icon_classes[current_image])
+
+        update_class_listbox()
+
+# Function to navigate to the next image
+def next_image():
+    global current_index
+    if current_index < len(icon_files) - 1:
+        current_index += 1
+        update_display()
+    save_progress()
+
+# Function to navigate to the previous image
+def prev_image():
+    global current_index
+    if current_index > 0:
+        current_index -= 1
+        update_display()
+    save_progress()
+
+# Function to update the class listbox
+def update_class_listbox():
+    class_listbox.delete(0, tk.END)
+    unique_classes = set(icon_classes.values())
+    for cls in sorted(unique_classes):
+        class_listbox.insert(tk.END, cls)
+
+# Function to handle double-click on a class in the listbox
+def on_class_select(event):
+    selected_class = class_listbox.get(class_listbox.curselection())
+    class_entry.delete(0, tk.END)
+    class_entry.insert(0, selected_class)
+
+# Function to save the current state of classes to JSON and TXT files
+def save_class():
+    global finalized_classes
+    current_image = icon_files[current_index]
+    class_label = class_entry.get()
+
+    # Check for duplicates before saving
+    if current_image not in icon_classes or icon_classes[current_image] != class_label:
+        icon_classes[current_image] = class_label
+
+        with open(LABEL_JSON, 'w') as f:
+            json.dump(icon_classes, f, indent=4)
+
+        # Update the finalized_classes with new labels
+        icon_id = int(current_image.split('_')[1].split('.')[0])  # Assuming image format icon_0.png
+        finalized_classes[icon_id] = class_label
+        save_finalized_class_file(FINALIZED_CLASS_FILE, finalized_classes)
+
+        print(f"Saved class for {current_image}: {class_label}")
+        update_class_listbox()
+    else:
+        print(f"Class '{class_label}' already exists. Skipping save.")
+
+# Function to save and go to the next image
+def save_and_next(event=None):
+    save_class()
+    next_image()
+
+# Function to delete the current image
+def delete_image():
+    global current_index
+    if 0 <= current_index < len(icon_files):
+        current_image = icon_files[current_index]
+        icon_id = int(current_image.split('_')[1].split('.')[0])  # Assuming image format icon_0.png
+
+        # Delete the image file
+        os.remove(os.path.join(selected_folder_path, current_image))
+        print(f"Deleted {current_image}")
+
+        # Remove the class entry from icon_classes and finalized_classes
+        if current_image in icon_classes:
+            del icon_classes[current_image]
+            with open(LABEL_JSON, 'w') as f:
+                json.dump(icon_classes, f, indent=4)
+
+        if icon_id in finalized_classes:
+            del finalized_classes[icon_id]
+            save_finalized_class_file(FINALIZED_CLASS_FILE, finalized_classes)
+
+        # Update the icon files list and adjust the index
+        icon_files.pop(current_index)
+        if current_index >= len(icon_files):
+            current_index = max(0, len(icon_files) - 1)
+
+        # Update the display and icon grid
+        update_display()
+        update_icon_grid()
+        save_progress()
+
+# Function to save the current progress
+def save_progress():
+    with open(PROGRESS_FILE, 'w') as f:
+        json.dump({'current_index': current_index}, f)
+
+# Function to handle icon clicks
+def on_icon_click(event, index):
+    global current_index
+    current_index = index
+    update_display()
+
+# Function to update the grid display of icons
+def update_icon_grid():
+    for widget in icon_frame.winfo_children():
+        widget.destroy()
+
+    for index, icon_file in enumerate(icon_files):
+        icon_path = os.path.join(selected_folder_path, icon_file)
+        icon_image = Image.open(icon_path)
+        icon_image.thumbnail((50, 50))
+        icon_thumb = ImageTk.PhotoImage(icon_image)
+
+        icon_label = tk.Label(icon_frame, image=icon_thumb, borderwidth=2, relief="solid")
+        icon_label.image = icon_thumb  # Keep a reference to avoid garbage collection
+        icon_label.grid(row=index // 6, column=index % 6, padx=2, pady=2)
+        icon_label.bind("<Button-1>", lambda e, idx=index: on_icon_click(e, idx))
+
+# Dropdown to select a folder
+def select_folder(event=None):
+    global selected_folder_path, icon_files, LABEL_JSON, LABEL_TXT, PROGRESS_FILE, FINALIZED_CLASS_FILE, icon_classes, finalized_classes, current_index
+    selected = selected_folder.get()
+    if selected:
+        selected_folder_path = os.path.join(ICON_BASE_DIR, selected)
+
+        LABEL_JSON = os.path.join(selected_folder_path, 'icon_classes.json')
+        LABEL_TXT = os.path.join(selected_folder_path, 'icon_classes.txt')
+        PROGRESS_FILE = os.path.join(selected_folder_path, 'progress.json')
+        FINALIZED_CLASS_FILE = os.path.join(selected_folder_path, 'finalized_class.txt')
+
+        icon_classes = load_json_data(LABEL_JSON)
+        finalized_classes = load_finalized_class_file(FINALIZED_CLASS_FILE)
+
+        icon_files = [f for f in os.listdir(selected_folder_path) if f.endswith('.png')]
+        icon_files.sort()
+
+        if os.path.exists(PROGRESS_FILE):
+            with open(PROGRESS_FILE, 'r') as f:
+                progress = json.load(f)
+                current_index = progress.get('current_index', 0)
+        else:
+            current_index = 0
+
+        update_display()
+        update_icon_grid()
+
+# Initialize the Tkinter window
+root = tk.Tk()
+root.title("Icon Classifier")
+
+# Get available folders and set up dropdown
+icon_folders = [f for f in os.listdir(ICON_BASE_DIR) if os.path.isdir(os.path.join(ICON_BASE_DIR, f))]
+selected_folder = tk.StringVar()
+ttk.Label(root, text="Select an Icon Folder:").pack(pady=10)
+folder_dropdown = ttk.Combobox(root, textvariable=selected_folder, values=icon_folders, state='readonly')
+folder_dropdown.pack(pady=10)
+folder_dropdown.bind("<<ComboboxSelected>>", select_folder)
+
+# Main display area for the image
+img_label = tk.Label(root)
+img_label.pack(side=tk.TOP)
+
+# Text entry for class label
+class_entry = tk.Entry(root, width=50)
+class_entry.pack()
+class_entry.bind('<Return>', save_and_next)
+
+# Save class button
+save_button = tk.Button(root, text="Save Class", command=save_class)
+save_button.pack()
+
+# Navigation buttons
+prev_button = tk.Button(root, text="Back", command=prev_image)
+prev_button.pack(side=tk.LEFT)
+
+next_button = tk.Button(root, text="Next", command=next_image)
+next_button.pack(side=tk.RIGHT)
+
+# Delete button
+delete_button = tk.Button(root, text="Delete Image", command=delete_image)
+delete_button.pack()
+
+# Listbox for existing classes
+class_listbox = tk.Listbox(root, width=50, height=10)
+class_listbox.pack()
+class_listbox.bind('<Double-1>', on_class_select)
+
+# Scrollable frame for icon grid
+canvas = tk.Canvas(root)
+icon_frame = tk.Frame(canvas)
+scrollbar = ttk.Scrollbar(root, orient="vertical", command=canvas.yview)
+canvas.configure(yscrollcommand=scrollbar.set)
+scroll_frame = canvas.create_window((0, 0), window=icon_frame, anchor="nw")
+
+def on_configure(event):
+    canvas.configure(scrollregion=canvas.bbox("all"))
+
+icon_frame.bind("<Configure>", on_configure)
+canvas.pack(side=tk.LEFT, fill="both", expand=True)
+scrollbar.pack(side=tk.RIGHT, fill="y")
+
+# Add manual screenshot button
+screenshot_button = tk.Button(root, text="Capture Screenshot", command=take_screenshot)
+screenshot_button.pack()
+
+# Run the Tkinter event loop
+root.mainloop()

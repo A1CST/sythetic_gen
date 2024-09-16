@@ -1,0 +1,188 @@
+import cv2
+import numpy as np
+from PIL import Image
+import os
+from tkinter import Tk
+from tkinter.filedialog import askopenfilename
+
+def select_image_file():
+    # Initialize Tkinter root and hide the main window
+    root = Tk()
+    root.withdraw()
+
+    # Open a file dialog to select an image file
+    file_path = askopenfilename(
+        title="Select Image File",
+        filetypes=[("Image Files", "*.png *.jpg *.jpeg *.bmp *.tiff")]
+    )
+
+    return file_path
+
+def get_next_output_directory(base_dir):
+    # Find the next available numbered directory in 'icon_captures'
+    existing_dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d)) and d.startswith('icons_')]
+    if existing_dirs:
+        existing_numbers = [int(d.split('_')[1]) for d in existing_dirs if d.split('_')[1].isdigit()]
+        next_number = max(existing_numbers) + 1 if existing_numbers else 1
+    else:
+        next_number = 1
+
+    # Create the new output directory path
+    new_output_dir = os.path.join(base_dir, f'icons_{next_number}')
+    os.makedirs(new_output_dir, exist_ok=True)
+    return new_output_dir
+
+def extract_icons(image_path, output_dir):
+    try:
+        # Load the selected image
+        img = cv2.imread(image_path)
+
+        if img is None:
+            print(f"Error: Could not load image from {image_path}")
+            return
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # Use edge detection to find icons
+        edges = cv2.Canny(gray, threshold1=30, threshold2=100)
+
+        # Find contours (this will identify potential icon boundaries)
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Path for the finalized_class.txt file
+        class_file_path = os.path.join(output_dir, 'finalized_class.txt')
+        with open(class_file_path, 'w') as class_file:
+            icon_count = 0
+            for contour in contours:
+                # Get the bounding box for each contour
+                x, y, w, h = cv2.boundingRect(contour)
+
+                # Filter out small contours that are not icons
+                if w > 20 and h > 20:  # Adjust size filter as needed
+                    # Extract the icon using the bounding box
+                    icon = img[y:y + h, x:x + w]
+
+                    # Convert the icon to a PIL image and add transparency
+                    icon_pil = Image.fromarray(cv2.cvtColor(icon, cv2.COLOR_BGR2RGBA))
+                    transparent_icon = Image.new("RGBA", icon_pil.size, (0, 0, 0, 0))
+                    transparent_icon.paste(icon_pil, (0, 0), icon_pil)
+
+                    # Save the icon as PNG with transparency
+                    icon_filename = os.path.join(output_dir, f"icon_{icon_count}.png")
+                    transparent_icon.save(icon_filename)
+
+                    # Write the icon's index and "un-labeled" to the finalized_class.txt file
+                    class_file.write(f"{icon_count}    un-labeled\n")
+
+                    icon_count += 1
+
+        print(f"Extracted {icon_count} icons and saved to {output_dir}")
+        print(f"Class file saved to: {class_file_path}")
+
+    except Exception as e:
+        print(f"Error extracting icons: {e}")
+
+# Example usage
+captures_dir = os.path.join(os.path.dirname(os.getcwd()), 'Detection', 'icon_captures')  # Adjust to place above 'interface' directory
+image_path = select_image_file()  # Select an image file instead of taking a screenshot
+if image_path:
+    output_dir = get_next_output_directory(captures_dir)
+    extract_icons(image_path, output_dir)
+import cv2
+import numpy as np
+from PIL import Image
+import os
+from tkinter import Tk
+from tkinter.filedialog import askopenfilename
+
+def select_image_file():
+    # Initialize Tkinter root and hide the main window
+    root = Tk()
+    root.withdraw()
+
+    # Open a file dialog to select an image file
+    file_path = askopenfilename(
+        title="Select Image File",
+        filetypes=[("Image Files", "*.png *.jpg *.jpeg *.bmp *.tiff")]
+    )
+
+    return file_path
+
+def get_next_output_directory(base_dir):
+    # Find the next available numbered directory in 'icon_captures'
+    existing_dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d)) and d.startswith('icons_')]
+    if existing_dirs:
+        existing_numbers = [int(d.split('_')[1]) for d in existing_dirs if d.split('_')[1].isdigit()]
+        next_number = max(existing_numbers) + 1 if existing_numbers else 1
+    else:
+        next_number = 1
+
+    # Create the new output directory path
+    new_output_dir = os.path.join(base_dir, f'icons_{next_number}')
+    os.makedirs(new_output_dir, exist_ok=True)
+    return new_output_dir
+
+def extract_icons(image_path, output_dir):
+    try:
+        # Load the selected image
+        img = cv2.imread(image_path)
+
+        if img is None:
+            print(f"Error: Could not load image from {image_path}")
+            return
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # Use edge detection to find icons
+        edges = cv2.Canny(gray, threshold1=30, threshold2=100)
+
+        # Find contours (this will identify potential icon boundaries)
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Path for the finalized_class.txt file
+        class_file_path = os.path.join(output_dir, 'finalized_class.txt')
+        with open(class_file_path, 'w') as class_file:
+            icon_count = 0
+            for contour in contours:
+                # Get the bounding box for each contour
+                x, y, w, h = cv2.boundingRect(contour)
+
+                # Filter out small contours that are not icons
+                if w > 20 and h > 20:  # Adjust size filter as needed
+                    # Extract the icon using the bounding box
+                    icon = img[y:y + h, x:x + w]
+
+                    # Convert the icon to a PIL image and add transparency
+                    icon_pil = Image.fromarray(cv2.cvtColor(icon, cv2.COLOR_BGR2RGBA))
+                    transparent_icon = Image.new("RGBA", icon_pil.size, (0, 0, 0, 0))
+                    transparent_icon.paste(icon_pil, (0, 0), icon_pil)
+
+                    # Save the icon as PNG with transparency
+                    icon_filename = os.path.join(output_dir, f"icon_{icon_count}.png")
+                    transparent_icon.save(icon_filename)
+
+                    # Write the icon's index and "un-labeled" to the finalized_class.txt file
+                    class_file.write(f"{icon_count}    un-labeled\n")
+
+                    icon_count += 1
+
+        print(f"Extracted {icon_count} icons and saved to {output_dir}")
+        print(f"Class file saved to: {class_file_path}")
+
+    except Exception as e:
+        print(f"Error extracting icons: {e}")
+
+# Example usage
+captures_dir = os.path.join(os.path.dirname(os.getcwd()), 'Detection', 'icon_captures')  # Adjust to place above 'interface' directory
+image_path = select_image_file()  # Select an image file instead of taking a screenshot
+if image_path:
+    output_dir = get_next_output_directory(captures_dir)
+    extract_icons(image_path, output_dir)
